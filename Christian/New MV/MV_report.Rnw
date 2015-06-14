@@ -1,0 +1,356 @@
+\documentclass[english]{report}
+\usepackage[letterpaper,left=1in,top=1in,right=1in,bottom=1in,portrait,twoside=true, headheight=110pt]{geometry}
+\usepackage{graphicx}
+\usepackage{color}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+
+\renewcommand{\chaptermark}[1]{\markright{#1}{}}
+\renewcommand{\sectionmark}[1]{\markright{#1}{}}
+\usepackage{amsmath}
+\usepackage{framed}
+
+
+
+\rhead{ID: 804057531 Christian Gao}
+
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+<<echo=false,results=hide>>==
+library(tseries)
+library(XML)
+library(foreign)
+library(lubridate)
+
+###########
+#FUNCTIONS#
+###########
+
+
+#Double Exponential
+
+double_exp<-function(unsmoothed,alpha=.1,beta=.1,greed=0,predict_ahead=1){
+  
+  x<-unsmoothed
+  #Set initial values
+  x_length<-length(x)
+  s<-NULL;s[1:2]<-x[1:2]
+  b<-NULL;b[1:2]<-x[2]-x[1]
+  p<-NULL;p[1:2]<-s[1:2] #predict
+  
+  #Smooth Functions s= smoothed b=trend
+  for(t in 3:length(unsmoothed)){
+    s[t] = alpha*x[t] + (1-alpha)*(s[t-1]+b[t-1])
+    b[t] = beta*(s[t]-s[t-1])+(1-beta)*b[t-1]
+    p[t]=  greed*x[t-1]+(1-greed)*s[t-1]+b[t-1]
+  }
+  
+  last_expected_return<-(predict_ahead*b[t])/x[x_length]
+  
+  results<-list(x,s,p,last_expected_return)
+  names(results)<-c("unsmoothed","smoothed","prediction","expect_return")
+  #plot(as.numeric(unsmoothed),type="l");lines(y=s,x=1:length(s),col="red");lines(y=p,x=1:length(p),col="blue")
+  
+  return(results)
+}
+
+###Risk###
+
+get_risk<-function(results_1){
+  mse<-sum((results_1[[3]]-results_1[[1]])^2) #the srt of predicted - actual
+  return(sqrt(mse))
+}
+
+###Portfolio###
+combine_port<-function(stock_1,stock_2,weight_1=.5,weight_2=.5){
+  
+  #normalize
+  n_ratio<-stock_1[1]/stock_2[1]
+  stock_2_n<-stock_2*n_ratio
+  stock_2_n[1]
+  
+  #combine
+  portfolio<-weight_1*stock_1+weight_2*stock_2_n
+  #plot(portfolio,main="portfolio")
+  #lines(stock_2_n,col="red")
+  #lines(stock_1,col="blue")
+  
+  return(portfolio) 
+}
+
+###Average Returns###
+
+get_ave_return<-function(portfolio){
+  total_return<-(portfolio[length(portfolio)]-portfolio[1])
+  first_price<-portfolio[1]
+  last_price<-portfolio[length(portfolio)]
+  ave_return<-exp(log(portfolio[length(portfolio)]/portfolio[1])/length(portfolio))
+  #portfolio[1]*ave_return^length(portfolio) #test 
+  return(ave_return-1)
+}
+
+#get_ave_return(portfolio)
+
+###Make Real MV###
+
+MV_curve<-function(stock_1,stock_2,alpha=.08,beta=.08,greed=0){
+  #make variables
+  ave_returns<-NULL
+  risks<-NULL
+  
+  p_ratios_1 <- seq(0,1,.01)  
+  weight_1<-p_ratios_1
+  weight_2<-1-weight_1
+  
+  for(i in 1:length(p_ratios_1)){
+    combined_port<-combine_port(stock_1,stock_2,weight_1=weight_1[i],
+                                weight_2=weight_2[i])
+    
+    results_1<-double_exp(combined_port,alpha=alpha,beta=beta,greed=greed)
+    ave_returns<-c(ave_returns,get_ave_return(combined_port))
+    risks<-c(risks,get_risk(results_1))
+  }
+  plot(risks,ave_returns,main="Mean vs Risk")
+  
+  MV_results<-list(ave_returns,risks)
+  names(MV_results)<-c("returns","risks")
+  return(MV_results)
+}
+
+###Make Real Expected Return MV###
+
+Expect_MV_curve<-function(stock_1,stock_2,alpha=.06,beta=.06,greed=0){
+  #make variables
+  expect_returns<- NULL
+  risks<-NULL
+  
+  p_ratios_1 <- seq(0,1,.01)  
+  weight_1<-p_ratios_1
+  weight_2<-1-weight_1
+  
+  
+  for(i in 1:length(p_ratios_1)){
+    combined_port<-combine_port(stock_1,stock_2,weight_1=weight_1[i],
+                                weight_2=weight_2[i])
+    
+    results_1<-double_exp(combined_port,alpha=alpha,beta=beta,greed=greed)
+    expect_returns<-c(expect_returns,results_1[[4]])
+    risks<-c(risks,get_risk(results_1))
+  }
+  plot(risks,expect_returns,main="Expected Returns vs Risk")
+  
+  MV_results<-data.frame(expect_returns,risks,weight_1,weight_2)
+  #names(MV_results)<-c("expect_returns","risks",)
+  return(MV_results)
+}
+
+###OLD MV MODEL###
+
+OLD_MV<-function(stock_1,stock_2){
+#Establish returns of stocks
+l_stock<-length(stock_1)
+  
+r1 <- (stock_1[-1]-stock_1[-l_stock])/stock_1[-l_stock]
+r2 <- (stock_2[-1]-stock_2[-l_stock])/stock_2[-l_stock]
+
+#Place the returns together in a data frame:
+returns <- as.data.frame(cbind(r1,r2))
+
+#Create many portfolios (combinations of the two stocks):
+a <- seq(0,1,.01)
+b <- 1-a
+
+#Compute the expected return of each portfolio:
+rp_bar <- a*mean(returns$r1)+b*mean(returns$r2)
+
+#Compute the variance and standard deviation of each portfolio:
+var_p <- a^2*var(returns$r1)+b^2*var(returns$r2)+
+  2*a*b*cov(returns$r1,returns$r2)
+
+sd_p <- var_p^.5
+qq <- as.data.frame(cbind(sd_p, rp_bar))
+
+#get the minimum variance 
+x1 <- (var(returns$r2)-cov(returns$r1,returns$r2))/
+  (var(returns$r1)+var(returns$r2)-2*cov(returns$r1,returns$r2))
+x2 <- 1-x1
+rp_bar_min <- x1*mean(returns$r1)+x2*mean(returns$r2)
+sd_p_min <- (x1^2*var(returns$r1)+x2^2*var(returns$r2)+
+               2*x1*x2*cov(returns$r1,returns$r2))^0.5
+qqq <- qq[qq$rp_bar > rp_bar_min,]
+
+#And then draw the efficient frontier:
+plot(qq, xlab="Portfolio risk (standard deviation)", 
+     ylab="Expected return", type="l",main="Old MV Efficient Frontier")
+points(qqq, col="blue", type="l", lwd=5)
+legend(x="bottomright",legend=c("efficiency frontier","original point","new point")
+       ,fill=c("blue","green","red"))
+
+}
+
+
+###########
+#Constants#
+###########
+
+
+##set parameters
+ticker = "AAPL"
+ticker_1 = "AAPL"
+ticker_2 = "CNK"
+
+start<-as.Date("2009/01/01", "%Y/%m/%d")
+end<-as.Date("2013/06/01", "%Y/%m/%d")
+
+#set time series
+ts_daily_prices = get.hist.quote(ticker,start= start,end = end, quote = "AdjClose", compression = "w", retclass = "zoo")
+unsmoothed<-ts(as.numeric(ts_daily_prices),start=decimal_date(start),frequency=52)
+
+ts_daily_prices_1 = get.hist.quote(ticker_1,start= start,end = end, quote = "AdjClose", compression = "w", retclass = "zoo")
+stock_1<-ts(as.numeric(ts_daily_prices_1),start=decimal_date(start),frequency=52)
+
+ts_daily_prices_2 = get.hist.quote(ticker_2,start= start,end = end, quote = "AdjClose", compression = "w", retclass = "zoo")
+stock_2<-ts(as.numeric(ts_daily_prices_2),start=decimal_date(start),frequency=52)
+
+
+@
+
+\begin{center}\bf\Large
+New Modern Portfolio Theory\\ \normalfont
+Christian Gao
+\end{center}
+\tableofcontents
+\newpage
+
+
+\section{Intro}
+
+\Large{Previous studies in portfolio theory have shown that by diversifying portfolios with a variety of financial assets, one can successfully reduce the risk of investments while still preserving the return of the portfolio. This concept, although illustrated in the current Mean Variance (MV) Model, is presented with three major flaws due to the difficulty in designing a structure that can closely fit reality. First, the current MV model does not take into account that past returns are not as influential as current returns. Second, the Mean Variance model heavily favors high volatility securities. Finally, the Mean Variance Model describes the overall volitility of the stock but does not accurately describe risk. Our new model is based on the school of thought that risk is defined by the size of the errors between our predicted value and the actual value rather than the standard deviation of returns. So risk depends on the quality of the model not just the movement of the stock. To suggest a more unbiased way of estimating the true mean variance curve we set three assumptions about our data.
+}
+
+\Large{\bf New Assumptions for the New MV model}
+
+\begin{enumerate}
+  \item Samples ordered according to time.
+  \item Newer events affect predictions more than older events and its effect decays exponentially.
+  \item Future Predictions are comprised of a point estimate and Trend component.
+\end{enumerate}
+
+\newpage
+\section{Flaws of Old MV Model}
+
+\subsection{Mean Return Does not Equal Expected Return}
+
+\Large{The greatest flaw in the old mean variance model is its tendency to favor volitile stocks over non-volitile stocks. Consider the equation for returns.}\\
+
+\LARGE{\(\frac{P_{t=2}-P_{t=1}}{P_{t=1}}\)}\\
+
+\Large{Suppose a stock went from two dollars to one dollar then back to two dollars. According to this equation, we would loose 50\% then gain 100\% even though we have not accumulated any real gains. This is very problematic as this makes the Mean Variance model very biased when applied to volitile stocks. Since we are essentially inventing returns with this model, the model will almost always show an upper bound curve because more volitile stocks are mathematically guaranteed to have a higher return. Supposed we instead took a weighted return so that denominator is the same for the two calculations.}
+
+\LARGE{\(\frac{P_{t=2}-P_{t=1}}{Mean(P_{t=1},P_{t=2})}\)}\\
+
+\Large{Then in the previous example we would first loose 66\% then gain 66\%. At first glance this seems good, however, since we are using one number to generalize the returns of a stock, we are making the assumption that the stock is exponentially destributed. Suppose we have a stock that started at one dollar and ended up at twenty dollars. It the stock grew by one dollar every year, the first few years will see very high growth such as from one dollar to two dollars but the last few years the percentage returns will decay. If we simply take the average of the returns then in the coming years then this will highly overestimate the expected return of the stock which may show a trend of growth that is slowing down. In other words this way of calculating returns gives the most optimistic assumption that the stock has an exponential trend, and this estimate will be biased if the real trend of the stock is for example linear. }
+
+\subsection{Variance in Returns Does not Equal Risk}
+
+\Large{The second flaw in the MV model is the estimation of risk. Supposed stock one went up in price exactly one percent every day for the past ten days, the model would classify that as no risk because there is no difference between the average percentage of increase and the actual percentage of increase every day. Suppose stock two went up in price of one dollar every day. Then the model would return a risk bigger than 0 because even though the collar returns are constant the percentage returns change over time. Thus, stocks with a linear trend are seen as higher risk than stocks with an exponential trend. This means that the MV model cannot capture any pattern or trend that is not exponential and will always assume that a stock growing exponentially is the least volitile stock.  }
+
+\newpage
+\section{New MV Model- Intro to Exponential Smoothing}
+
+\subsection{Basic Double Exponential Smoothing}
+
+\Large{In this section we will propose a model that will help solve the biased nature of the old MV model. For the base of our new MV model we will use the Holt-Winters double exponential. The model is suitable for our needs because its parameters illustrates one of our new assumptions. The new "mean" or expected return will be defined as the predicted value of the next time period or periods into the future. The new variance will be defined as the difference between our previous predictions as the actual value. The Holt-Winters smoother separates each new predicted value into two characteristics a trend and a point estimate. The smoothed value \( s_t \)is a weighted average between the current stock price and the previous trend and smoothed stock estimate. The trend \( b_t \) is the current direction that the stock is currently moving in and is a exponentially decaying average of all the pervious movements in time. Alpha and Beta describe how much we value current data vs old data. The closer they are to 0 the more we value old data.}\\
+
+\noindent
+\Large{
+\( s_1 = x_1 \)\\
+\( b_1 = x_1 - x_0 \) \\
+\( s_t = \alpha x_t + (1-\alpha )(s_{t-1} + b_{t-1}) \) \\
+\( b_t = \beta(s_t - s{t-1}) + (1-\beta)b{t-1} \) \\
+\( F_{t+m} = s_t + mb_t \)
+}
+
+<<echo=false,fig=true>>==
+results_2<-double_exp(unsmoothed,greed=0)
+plot(as.numeric(results_2[[1]]),type="l");lines(y=results_2[[2]],x=1:length(results_2[[2]]),col="red");lines(y=results_2[[3]],x=1:length(results_2[[3]]),col="blue")
+@
+
+\newpage
+\subsection{Exponential Smoothing with added Greed Variable}
+
+\Large{
+\( F_{t+m} = s_t + mb_t \)\\
+\( F_{t+m} = G(x_t) + (1-G)s_t + mb_t \)}
+
+\Large{Here I have added a greed constant to the prediction equation. When G is zero, it is the normal prediction model that predicts the next value based on the smoothed estimate and the current trend. Then G is one we attach the trend to the current stock price instead of the smoothed value allowing us to make better predictions for the near future. The lower G is the more into the future you want to predict.}
+
+<<echo=false,fig=true>>==
+results_2<-double_exp(unsmoothed,greed=0)
+plot(as.numeric(results_2[[1]]),type="l",main="GREED = 0");
+legend(x="bottomright",legend=c("Stock Price","Smoothed Values","Historical Predictions"),fill=c("black","red","blue"))
+lines(y=results_2[[2]],x=1:length(results_2[[2]]),col="red");lines(y=results_2[[3]],x=1:length(results_2[[3]]),col="blue")
+@
+
+<<echo=false,fig=true,height=5>>==
+results_1<-double_exp(unsmoothed,greed=1)
+plot(as.numeric(results_1[[1]]),type="l",main ="GREED = 1");lines(y=results_1[[2]],x=1:length(results_1[[2]]),col="red");
+legend(x="bottomright",legend=c("Stock Price","Smoothed Values","Historical Predictions"),fill=c("black","red","blue"))
+lines(y=results_1[[3]],x=1:length(results_1[[3]]),col="blue")
+@
+
+<<echo=false,fig=true,height=5>>==
+results_3<-double_exp(unsmoothed,greed=.5)
+plot(as.numeric(results_3[[1]]),type="l",main="GREED = .5");lines(y=results_3[[2]],x=1:length(results_3[[2]]),col="red");
+legend(x="bottomright",legend=c("Stock Price","Smoothed Values","Historical Predictions"),fill=c("black","red","blue"))
+lines(y=results_3[[3]],x=1:length(results_3[[3]]),col="blue")
+@
+
+\newpage
+\subsection{ Mean Return, Mean Risk, Expected Return}
+
+\section{Results and Comparisons}
+
+\subsection{Two stocks we shall use}
+
+<<echo=false,fig=true,height=4>>==
+plot(stock_1,main="APPL STOCK")
+@
+
+<<echo=false,fig=true,height=4>>==
+plot(stock_2,main="CNK STOCK")
+@
+\subsection{Conclusion}
+
+<<echo=false,results=hide,fig=true,height=5>>==
+MV_curve(stock_1,stock_2,alpha=.06,beta=.06,greed=.5)
+@
+
+<<echo=false,results=hide,fig=true,height=5>>==
+Expect_MV_curve(stock_1,stock_2,alpha=.06,beta=.06,greed=.5)
+@
+
+<<echo=false,results=hide,fig=true>>==
+OLD_MV(stock_1,stock_2)
+@
+
+\Large{\indent Above we have three graphs, the first graph is average return plotted against risk. The average return is the amount of return needed to incure every day in order to get the total return rather than mean of all the returns as in the previous MV model. The second graph is the expected return of one time period into the future from our model plotted against the risk. The third graph is the traditional MV Frontier.\\
+
+By comparing the first graph to the third graph, we can see that we have successfully lowered the optimism in the model by not using the averaging returns method. \\
+By comparing the second and the third graph we can see that the model recognized that APPL has a current downward trend and CNK has an upward trend. This is why at that point in time the model reccomends to no buy any AAPL because it will neighter decrease the risk of the portfolio nor does it have any predicted returns in the future. Keep in mind that by adjusting alpha, beta, and greed, we will make different predictions. When alpha, beta, and greed are close to zero, we are aiming at making predictions far into the future. When they are close to one, we are making predictions for the near future.}
+
+
+\end{document}
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,11 @@
+\contentsline {section}{\numberline {0.1}Intro}{3}
+\contentsline {section}{\numberline {0.2}Flaws of Old MV Model}{4}
+\contentsline {subsection}{\numberline {0.2.1}Mean Return Does not Equal Expected Return}{4}
+\contentsline {subsection}{\numberline {0.2.2}Variance in Returns Does not Equal Risk}{4}
+\contentsline {section}{\numberline {0.3}New MV Model- Intro to Exponential Smoothing}{6}
+\contentsline {subsection}{\numberline {0.3.1}Basic Double Exponential Smoothing}{6}
+\contentsline {subsection}{\numberline {0.3.2}Exponential Smoothing with added Greed Variable}{8}
+\contentsline {subsection}{\numberline {0.3.3} Mean Return, Mean Risk, Expected Return}{10}
+\contentsline {section}{\numberline {0.4}Results and Comparisons}{10}
+\contentsline {subsection}{\numberline {0.4.1}Two stocks we shall use}{10}
+\contentsline {subsection}{\numberline {0.4.2}Conclusion}{11}
